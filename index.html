@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0">
+<title>Portal Orang Tua — Kehadiran &amp; Catatan Siswa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* =====================================================================
+     KONFIGURASI GAS — WAJIB DIISI SETELAH DEPLOY (lihat script tag bawah)
+     Gunakan URL Web App Google Apps Script yang SAMA dengan aplikasi admin
+     (Buku Kehadiran &amp; Kasus Siswa), karena data diambil dari sheet yang sama.
+     ===================================================================== */
+  :root{
+    --paper:#f5f8ff; --rule:#dfe9f4; --margin-red:#ff6b6b;
+    --ink:#18324a; --ink-soft:#58708a; --ink-faint:#8ea1b5;
+    --brass:#ff9f43;
+    --hadir:#2e8b57; --hadir-bg:#e8f7ef;
+    --izin:#f39c12; --izin-bg:#fff4df;
+    --sakit:#4c78b8; --sakit-bg:#eaf2ff;
+    --alpa:#e95656; --alpa-bg:#ffeaea;
+    --accent:#4f8cff; --accent-2:#17c3b2;
+    --card:#ffffff;
+    --shadow:0 12px 32px rgba(24,50,74,0.10);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-top: env(safe-area-inset-top, 0px);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; overscroll-behavior-y:none;}
+  body{
+    background:linear-gradient(135deg, #f7faff 0%, #eef5ff 45%, #fdf8ee 100%);
+    font-family:'IBM Plex Sans', sans-serif;
+    color:var(--ink);
+    min-height:100vh;
+    padding-bottom:calc(24px + var(--safe-bottom));
+    font-size:15px;
+  }
+  .wrap{max-width:640px; margin:0 auto; padding:0 14px;}
+
+  header.cover{
+    background:linear-gradient(135deg, var(--ink) 0%, #2b4a63 55%, var(--accent) 100%);
+    color:var(--paper);
+    padding:calc(16px + var(--safe-top)) 0 18px;
+    position:relative;
+    box-shadow:0 10px 30px rgba(24,50,74,0.18);
+  }
+  header.cover .wrap{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .brand{display:flex; align-items:center; gap:11px;}
+  .brand .mark{
+    width:42px; height:42px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    flex-shrink:0; overflow:hidden;
+    background:radial-gradient(circle at 30% 25%, rgba(255,255,255,.22), rgba(255,255,255,0) 60%), rgba(255,255,255,.06);
+    font-size:20px; padding:3px;
+    box-shadow:0 0 0 1px rgba(255,255,255,.22), 0 3px 10px rgba(0,0,0,.35);
+  }
+  .brand .mark img{width:100%; height:100%; object-fit:contain; display:block; filter:drop-shadow(0 1px 2px rgba(0,0,0,.25));}
+  .brand h1{font-family:'Fraunces',serif; font-size:16.5px; font-weight:600; margin:0; line-height:1.25;}
+  .brand p{margin:1px 0 0; font-size:11px; color:#B9CBC7;}
+  #refreshBtn{
+    background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18); color:var(--paper);
+    border-radius:20px; padding:7px 12px; font-size:11.5px; font-weight:600;
+    display:flex; align-items:center; gap:6px; cursor:pointer; font-family:'IBM Plex Mono',monospace;
+    white-space:nowrap;
+  }
+  #refreshBtn .dot{width:6px; height:6px; border-radius:50%; background:var(--hadir);}
+  #refreshBtn.busy .dot{background:var(--izin); animation:pulse 1s infinite;}
+  #refreshBtn.err .dot{background:var(--alpa);}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+
+  .config-banner{
+    background:var(--alpa-bg); color:var(--alpa); font-size:12.5px; padding:10px 14px;
+    line-height:1.5; border-bottom:1px solid var(--alpa);
+  }
+  .config-banner code{background:rgba(0,0,0,.06); padding:1px 5px; border-radius:4px; font-size:11.5px;}
+
+  main{padding-top:16px;}
+
+  .card{
+    background:linear-gradient(180deg, #ffffff 0%, #fcfdff 100%);
+    border:1px solid rgba(223,233,244,0.95);
+    border-left:4px solid var(--accent);
+    border-radius:16px; box-shadow:var(--shadow); padding:16px 15px; margin-bottom:14px;
+    position:relative; overflow:hidden;
+  }
+  .card::before{
+    content:""; position:absolute; inset:0 auto 0 0; width:4px; background:linear-gradient(180deg, var(--accent-2), var(--accent));
+    opacity:.9;
+  }
+  .card h2{font-family:'Fraunces',serif; font-weight:600; font-size:16.5px; margin:0 0 4px; display:flex; align-items:center; gap:8px;}
+  .card p.hint{color:var(--ink-soft); font-size:12.5px; margin:0 0 14px; line-height:1.5;}
+
+  .stack{display:flex; flex-direction:column; gap:10px;}
+  .field{display:flex; flex-direction:column; gap:5px;}
+  .field label{font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft);}
+  select, input[type=date], input[type=text]{
+    font-family:'IBM Plex Sans', sans-serif; border:1.5px solid var(--rule); background:#fdfefe;
+    border-radius:10px; padding:11px 12px; font-size:15px; color:var(--ink); outline:none; width:100%;
+    -webkit-appearance:none; appearance:none; transition:border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+  }
+  select{
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9'%3E%3Cpath d='M1 1l6 6 6-6' stroke='%234A6572' stroke-width='2' fill='none' fill-rule='evenodd'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 12px center; padding-right:34px;
+  }
+  select:focus, input:focus{border-color:var(--accent); box-shadow:0 0 0 3px rgba(79,140,255,.12);}
+
+  .btn{
+    font-family:'IBM Plex Sans', sans-serif; font-weight:600; font-size:14px;
+    border:1.5px solid var(--ink); background:linear-gradient(135deg, var(--ink) 0%, #2d5677 100%); color:var(--paper);
+    padding:12px 16px; border-radius:12px; cursor:pointer; width:100%;
+    display:flex; align-items:center; justify-content:center; gap:7px;
+    box-shadow:0 8px 18px rgba(24,50,74,.12); transition:transform .18s ease, box-shadow .18s ease;
+  }
+  .btn:hover{transform:translateY(-1px); box-shadow:0 10px 22px rgba(24,50,74,.16);}
+  .btn:active{transform:scale(.98);}
+  .btn.secondary{background:linear-gradient(135deg, #ffffff 0%, #f7fbff 100%); color:var(--ink); border-color:var(--rule); box-shadow:none;}
+  .btn.brass{background:linear-gradient(135deg, var(--brass) 0%, #ffb35c 100%); border-color:var(--brass); color:#fff;}
+  .btn.auto{width:auto;}
+  .btn.sm{padding:8px 12px; font-size:12.5px; border-radius:7px;}
+  .btn-row{display:flex; gap:8px; flex-wrap:wrap;}
+  .btn-row .btn{flex:1; min-width:130px;}
+
+  .li-item{
+    display:flex; align-items:center; gap:10px; padding:11px 8px; border-bottom:1px solid var(--rule); cursor:pointer; border-radius:10px; transition:background .18s ease, transform .18s ease;
+  }
+  .li-item:last-child{border-bottom:none;}
+  .li-item:hover{background:linear-gradient(90deg, rgba(79,140,255,.06), rgba(23,195,178,.05)); transform:translateX(2px);}
+  .li-item:active{background:var(--paper);}
+  .li-item .no{font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--ink-faint); width:26px; flex-shrink:0;}
+  .li-item .nm{flex:1; min-width:0;}
+  .li-item .nm .name{font-weight:600; font-size:14px;}
+  .li-item .nm .kelas{font-size:11px; color:var(--ink-soft); font-family:'IBM Plex Mono',monospace;}
+
+  .kelas-pill{
+    font-family:'IBM Plex Mono',monospace; font-size:10.5px; font-weight:600;
+    background:var(--sakit-bg); color:var(--sakit); padding:2px 8px; border-radius:20px; white-space:nowrap;
+  }
+
+  .badge{
+    display:inline-flex; align-items:center; gap:5px; font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px; font-weight:600; padding:3px 9px; border-radius:20px; white-space:nowrap;
+  }
+  .badge.Selesai{background:var(--hadir-bg); color:var(--hadir);}
+  .badge.DalamProses{background:var(--izin-bg); color:var(--izin);}
+  .badge.PerluTindakan{background:var(--alpa-bg); color:var(--alpa);}
+  .badge.Ringan{background:var(--izin-bg); color:var(--izin);}
+  .badge.Sedang{background:#F5DFC2; color:#9C5F1A;}
+  .badge.Berat{background:var(--alpa-bg); color:var(--alpa);}
+  .badge.SangatBerat{background:#3A2226; color:#F5A79A;}
+  .badge.Prestasi{background:var(--hadir-bg); color:var(--hadir);}
+  .badge.Netral{background:var(--sakit-bg); color:var(--sakit);}
+
+  .poin-badge{
+    display:inline-flex; align-items:center; gap:4px; font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:20px; white-space:nowrap;
+  }
+  .poin-badge.good{background:var(--hadir-bg); color:var(--hadir);}
+  .poin-badge.warn{background:var(--izin-bg); color:var(--izin);}
+  .poin-badge.bad{background:var(--alpa-bg); color:var(--alpa);}
+
+  .profile-card{
+    display:flex; align-items:center; gap:14px;
+  }
+  .profile-avatar{
+    width:54px; height:54px; border-radius:50%; background:linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%); color:var(--paper);
+    display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif;
+    font-weight:700; font-size:20px; flex-shrink:0; box-shadow:0 8px 18px rgba(79,140,255,.22);
+  }
+  .profile-info .name{font-family:'Fraunces',serif; font-weight:700; font-size:19px; line-height:1.2;}
+  .profile-info .sub{font-size:12px; color:var(--ink-soft); font-family:'IBM Plex Mono',monospace; margin-top:2px;}
+  .profile-poin{margin-left:auto; text-align:right;}
+  .profile-poin .val{font-family:'Fraunces',serif; font-weight:700; font-size:26px; line-height:1;}
+  .profile-poin .val.good{color:var(--hadir);}
+  .profile-poin .val.warn{color:var(--izin);}
+  .profile-poin .val.bad{color:var(--alpa);}
+  .profile-poin .lbl{font-size:10px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em; margin-top:2px;}
+
+  .summary-strip{display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;}
+  .summary-chip{flex:1; min-width:70px; background:linear-gradient(135deg, #ffffff 0%, #f7fbff 100%); border:1px solid var(--rule); border-radius:12px; padding:9px 10px; text-align:center; box-shadow:0 6px 14px rgba(24,50,74,.05);}
+  .summary-chip .n{font-family:'Fraunces',serif; font-weight:700; font-size:20px; line-height:1.1;}
+  .summary-chip .l{font-size:10px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.04em;}
+  .summary-chip.Hadir .n{color:var(--hadir);} .summary-chip.Sakit .n{color:var(--sakit);}
+  .summary-chip.Izin .n{color:var(--izin);} .summary-chip.Alpa .n{color:var(--alpa);}
+
+  .riwayat-row{
+    display:flex; align-items:center; gap:10px; padding:9px 4px; border-bottom:1px solid var(--rule); font-size:13px;
+  }
+  .riwayat-row:last-child{border-bottom:none;}
+  .riwayat-row .tgl{font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--ink-soft); width:96px; flex-shrink:0;}
+
+  .case-card{border:1px solid var(--rule); border-radius:9px; padding:13px 14px; margin-bottom:10px; background:var(--paper);}
+  .case-card .top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px;}
+  .case-card .meta{font-size:11px; color:var(--ink-soft); font-family:'IBM Plex Mono',monospace; margin-top:2px;}
+  .case-card .desc{font-size:13px; margin-top:8px; line-height:1.5;}
+  .case-card .tindakan{font-size:12px; margin-top:6px; color:var(--ink-soft); background:#fff; border-left:2px solid var(--brass); padding:6px 10px; border-radius:0 6px 6px 0;}
+
+  .histori-toggle{
+    font-family:'IBM Plex Sans',sans-serif; font-size:11.5px; font-weight:600; color:var(--ink-soft);
+    background:none; border:none; padding:6px 0 0; cursor:pointer; text-decoration:underline;
+  }
+  .histori-list{margin-top:8px; padding-left:2px; border-left:2px solid var(--rule);}
+  .histori-item{position:relative; padding:0 0 10px 16px;}
+  .histori-item:last-child{padding-bottom:0;}
+  .histori-item::before{
+    content:""; position:absolute; left:-5px; top:3px; width:8px; height:8px;
+    border-radius:50%; background:var(--brass); border:2px solid #fff;
+  }
+  .histori-item .ts{font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--ink-faint);}
+  .histori-item .ct{font-size:12.5px; margin-top:2px; line-height:1.4;}
+
+  .empty-state{text-align:center; padding:30px 16px; color:var(--ink-soft); font-size:13px;}
+  .empty-state .ico{font-size:24px; display:block; margin-bottom:8px;}
+
+  .muted{color:var(--ink-soft); font-size:12px;}
+  .privacy-note{
+    display:flex; gap:8px; align-items:flex-start; font-size:11.5px; color:var(--ink-soft);
+    background:var(--paper); border:1px dashed var(--rule); border-radius:8px; padding:10px 12px; margin-top:10px; line-height:1.5;
+  }
+
+  #loadingOverlay{
+    position:fixed; inset:0; background:rgba(15,32,38,.55); backdrop-filter:blur(2px);
+    display:none; align-items:center; justify-content:center; z-index:80; padding:20px;
+  }
+  #loadingOverlay.show{display:flex;}
+  .loading-card{
+    background:linear-gradient(135deg, #ffffff 0%, #f7fbff 100%); border-radius:20px; padding:30px 30px 26px; width:100%; max-width:280px;
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+    box-shadow:0 22px 60px rgba(0,0,0,.28); text-align:center;
+    animation:cardIn .35s cubic-bezier(.2,.8,.2,1);
+    border:1px solid rgba(223,233,244,.95);
+  }
+  @keyframes cardIn{from{opacity:0; transform:translateY(8px) scale(.97);}to{opacity:1; transform:translateY(0) scale(1);}}
+  .loading-logo{
+    width:66px; height:66px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 32% 26%, rgba(255,255,255,.5), rgba(255,255,255,0) 60%), var(--ink);
+    box-shadow:0 0 0 4px var(--paper), 0 0 0 5px var(--rule), 0 8px 22px rgba(28,58,68,.28);
+    position:relative;
+  }
+  .loading-logo img{width:78%; height:78%; object-fit:contain; display:block;}
+  .loading-logo::after{
+    content:""; position:absolute; inset:-4px; border-radius:50%;
+    border:2.5px solid transparent; border-top-color:var(--brass); border-right-color:var(--brass);
+    animation:spin .9s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .loading-card .loading-title{font-family:'Fraunces',serif; font-weight:700; font-size:15.5px; color:var(--ink); margin:0;}
+  .loading-card #loadingMsg{font-size:12px; color:var(--ink-soft); margin:0; line-height:1.4;}
+  .loading-bar-track{width:100%; height:7px; border-radius:20px; background:var(--rule); overflow:hidden; margin-top:2px;}
+  .loading-bar-fill{
+    height:100%; width:0%; border-radius:20px;
+    background:linear-gradient(90deg, var(--brass), var(--margin-red));
+    transition:width .25s ease-out;
+  }
+  .loading-pct{font-family:'IBM Plex Mono',monospace; font-size:12.5px; font-weight:600; color:var(--ink); margin-top:-4px;}
+
+  .toast{
+    position:fixed; bottom:calc(20px + var(--safe-bottom)); left:50%; transform:translateX(-50%) translateY(20px);
+    background:linear-gradient(135deg, var(--ink) 0%, #2f5676 100%); color:var(--paper); padding:11px 18px; border-radius:999px; font-size:13px; font-weight:600;
+    box-shadow:0 12px 28px rgba(24,50,74,.22); opacity:0; pointer-events:none; transition:.25s; z-index:50; max-width:88vw;
+    display:flex; align-items:center; gap:8px; text-align:center;
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+  .toast.err{background:linear-gradient(135deg, var(--alpa) 0%, #ff7a7a 100%);}
+  .toast .dot{width:7px; height:7px; border-radius:50%; background:var(--brass); flex-shrink:0;}
+</style>
+</head>
+<body>
+
+<header class="cover">
+  <div class="wrap">
+    <div class="brand">
+      <div class="mark"><img id="headerLogoImg" src="" alt="Logo SMP 10 Pasundan"></div>
+      <div>
+        <h1>Portal Orang Tua</h1>
+        <p>Kehadiran &amp; Catatan Siswa</p>
+      </div>
+    </div>
+    <button id="refreshBtn"><span class="dot"></span><span id="refreshLabel">Muat</span></button>
+  </div>
+</header>
+
+<div class="config-banner" id="configBanner" style="display:none;">
+  ⚠️ URL Google Apps Script belum diisi. Buka file HTML ini, cari baris <code>const GAS_URL = "...";</code> di bagian bawah, lalu tempel Web App URL yang sama dengan aplikasi Buku Kehadiran.
+</div>
+
+<main class="wrap">
+
+  <!-- ===================== PENCARIAN ===================== -->
+  <section id="panel-search">
+    <div class="card">
+      <h2>Cari Data Anak Anda</h2>
+      <p class="hint">Masukkan nama lengkap dan pilih kelas anak Anda untuk melihat kehadiran dan catatan sekolahnya. Anda hanya dapat melihat data anak Anda sendiri.</p>
+      <div class="stack">
+        <div class="field"><label>Nama Lengkap Anak</label><input type="text" id="searchNama" placeholder="Ketik nama anak..."></div>
+        <div class="field"><label>Kelas</label><select id="searchKelas"><option value="">Pilih kelas</option></select></div>
+        <button class="btn brass" id="btnCari">🔍 Cari</button>
+      </div>
+      <div id="searchMsg" class="muted" style="margin-top:10px;"></div>
+      <div class="privacy-note">🔒 Untuk menjaga privasi, portal ini hanya menampilkan data siswa yang namanya cocok dengan pencarian Anda pada kelas yang dipilih.</div>
+    </div>
+
+    <div class="card" id="matchListCard" style="display:none;">
+      <h2>Pilih Siswa</h2>
+      <p class="hint">Ditemukan beberapa siswa dengan nama serupa. Silakan pilih yang sesuai.</p>
+      <div id="matchListWrap"></div>
+    </div>
+  </section>
+
+  <!-- ===================== DETAIL SISWA ===================== -->
+  <section id="panel-detail" style="display:none;">
+    <div class="card">
+      <div class="profile-card">
+        <div class="profile-avatar" id="profAvatar">?</div>
+        <div class="profile-info">
+          <div class="name" id="profNama">-</div>
+          <div class="sub" id="profSub">-</div>
+        </div>
+        <div class="profile-poin">
+          <div class="val" id="profPoin">-</div>
+          <div class="lbl">Poin Disiplin</div>
+        </div>
+      </div>
+      <button class="btn secondary sm auto" id="btnGantiSiswa" style="margin-top:12px;">← Cari Siswa Lain</button>
+    </div>
+
+    <div class="card">
+      <h2>Rekap Kehadiran</h2>
+      <div class="stack">
+        <div class="field"><label>Rentang Waktu</label>
+          <div class="btn-row">
+            <input type="date" id="rekapStart">
+            <input type="date" id="rekapEnd">
+          </div>
+        </div>
+        <button class="btn secondary" id="btnTampilkanRekap">Tampilkan</button>
+      </div>
+      <div class="summary-strip" id="rekapSummary"></div>
+      <div id="rekapList" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Riwayat Catatan Kejadian</h2>
+      <p class="hint">Catatan kedisiplinan, prestasi, dan penanganan kasus yang tercatat oleh wali kelas / kesiswaan.</p>
+      <div id="kasusWrap"></div>
+    </div>
+  </section>
+
+</main>
+
+<div id="loadingOverlay">
+  <div class="loading-card">
+    <div class="loading-logo"><img id="loadingLogoImg" src="" alt="Logo Sekolah"></div>
+    <p class="loading-title">SMP 10 Pasundan</p>
+    <p id="loadingMsg">Memuat data...</p>
+    <div class="loading-bar-track"><div class="loading-bar-fill" id="loadingBarFill"></div></div>
+    <div class="loading-pct" id="loadingPct">0%</div>
+  </div>
+</div>
+<div class="toast" id="toast"><span class="dot"></span><span id="toastMsg"></span></div>
+
+<script>
+/* =====================================================================
+   ▼▼▼  LOGO — diambil dari Google Drive (pastikan file di-share
+   "Anyone with the link") ▼▼▼
+   ===================================================================== */
+const DRIVE_FILE_ID = "14cXGVOtUy2yKskFTh7VEvTj6V6LfKR0B";
+const LOGO_DATA_URI = "https://drive.google.com/thumbnail?id=" + DRIVE_FILE_ID + "&sz=w200";
+document.getElementById('headerLogoImg').src = LOGO_DATA_URI;
+document.getElementById('loadingLogoImg').src = LOGO_DATA_URI;
+
+/* =====================================================================
+   ▼▼▼  WAJIB DIISI: tempel Web App URL Google Apps Script (sama dengan
+   aplikasi admin "Buku Kehadiran & Kasus Siswa") ▼▼▼
+   Contoh: "https://script.google.com/macros/s/AKfycbx.../exec"
+   ===================================================================== */
+const GAS_URL = "https://script.google.com/macros/s/AKfycbyAUJesssNpGyunxxGzOcsxQoNqj2yRMj22Uly3kG15UDC-H8UYjAoVpg3oyKTUXc8rrw/exec";
+
+/* ======================= STATE ======================= */
+let siswaList = [];
+let kehadiranAll = [];
+let kasusList = [];
+let currentSiswa = null; // {no, nama, kelas}
+const STATUS_LABEL = {PerluTindakan:'Perlu Tindakan', DalamProses:'Dalam Proses', Selesai:'Selesai'};
+const KATEGORI_LABEL = {Ringan:'Ringan', Sedang:'Sedang', Berat:'Berat', SangatBerat:'Sangat Berat', Prestasi:'Prestasi', Netral:'Non-Pelanggaran'};
+const POIN_AWAL = 100;
+const todayISO = () => new Date().toISOString().slice(0,10);
+
+/* ======================= API (read-only) ======================= */
+function isConfigured(){
+  return GAS_URL && GAS_URL.indexOf('https://script.google.com') === 0;
+}
+async function apiGet(){
+  const res = await fetch(GAS_URL + '?action=getData');
+  const json = await res.json();
+  if(!json.ok) throw new Error(json.error || 'Gagal memuat data');
+  return json.data;
+}
+
+function setSync(state, label){
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.remove('busy','err');
+  if(state) btn.classList.add(state);
+  document.getElementById('refreshLabel').textContent = label;
+}
+let loadingProgressTimer = null;
+function setLoadingPct(p){
+  const pct = Math.max(0, Math.min(100, Math.round(p)));
+  const fill = document.getElementById('loadingBarFill');
+  const lbl = document.getElementById('loadingPct');
+  if(fill) fill.style.width = pct + '%';
+  if(lbl) lbl.textContent = pct + '%';
+}
+function showLoading(msg){
+  document.getElementById('loadingMsg').textContent = msg || 'Memuat...';
+  document.getElementById('loadingOverlay').classList.add('show');
+  // progres semu: naik cepat lalu melambat, menunggu fetch benar-benar selesai
+  setLoadingPct(0);
+  clearInterval(loadingProgressTimer);
+  let pct = 0;
+  loadingProgressTimer = setInterval(()=>{
+    const step = pct < 60 ? 7 : (pct < 85 ? 2.5 : 0.6);
+    pct = Math.min(92, pct + step);
+    setLoadingPct(pct);
+  }, 160);
+}
+function hideLoading(isErr){
+  clearInterval(loadingProgressTimer);
+  setLoadingPct(isErr ? 0 : 100);
+  document.getElementById('loadingMsg').textContent = isErr ? 'Gagal memuat data' : 'Selesai';
+  toast(isErr ? 'DATA GAGAL DIAKSES, SILAHKAN COBA LAGI DILAIN WAKTU' : 'DATA BERHASIL DIAKSES', !!isErr);
+  setTimeout(()=>{
+    document.getElementById('loadingOverlay').classList.remove('show');
+    setLoadingPct(0);
+  }, isErr ? 500 : 260);
+}
+let toastTimer;
+function toast(msg, isErr){
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = msg;
+  t.classList.toggle('err', !!isErr);
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 2600);
+}
+
+async function loadData(showSpinner){
+  if(!isConfigured()){
+    document.getElementById('configBanner').style.display = 'block';
+    setSync('err', 'Belum diatur');
+    return;
+  }
+  document.getElementById('configBanner').style.display = 'none';
+  if(showSpinner) showLoading('Menghubungi server sekolah...');
+  setSync('busy', 'Memuat...');
+  let gagal = false;
+  try{
+    const data = await apiGet();
+    if(showSpinner) document.getElementById('loadingMsg').textContent = 'Menyusun data siswa...';
+    siswaList = data.siswa || [];
+    kehadiranAll = data.kehadiran || [];
+    kasusList = data.kasus || [];
+    setSync('', 'Termuat');
+    renderKelasOptions();
+    // Jika sedang melihat detail siswa, refresh datanya juga
+    if(currentSiswa){
+      const stillExists = siswaList.find(s=>String(s.no)===String(currentSiswa.no) && s.kelas===currentSiswa.kelas);
+      if(stillExists) selectSiswa(stillExists); else backToSearch();
+    }
+  }catch(err){
+    console.error(err);
+    gagal = true;
+    setSync('err', 'Gagal memuat');
+  }finally{
+    hideLoading(gagal);
+  }
+}
+document.getElementById('refreshBtn').addEventListener('click', ()=>loadData(true));
+
+/* ======================= UTIL ======================= */
+function uniqueKelas(){ return [...new Set(siswaList.map(s=>s.kelas).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'id')); }
+function escapeHtml(str){ return String(str??'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function fmtTanggal(iso){ if(!iso) return ''; const d = new Date(iso+'T00:00:00'); return d.toLocaleDateString('id-ID', {day:'2-digit', month:'short', year:'numeric'}); }
+function fmtTimestamp(ts){
+  if(!ts) return '';
+  const d = new Date(String(ts).replace(' ', 'T'));
+  if(isNaN(d.getTime())) return String(ts);
+  return d.toLocaleDateString('id-ID', {day:'2-digit', month:'short', year:'numeric'}) + ' ' + d.toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'});
+}
+function computeStudentPoin(no, kelas){
+  const delta = kasusList.filter(k=>String(k.no)===String(no) && k.kelas===kelas).reduce((sum,k)=> sum + (Number(k.poin)||0), 0);
+  return Math.max(0, Math.min(100, POIN_AWAL + delta));
+}
+function poinBadgeClass(poin){
+  if(poin>=80) return 'good';
+  if(poin>=50) return 'warn';
+  return 'bad';
+}
+
+function renderKelasOptions(){
+  const sel = document.getElementById('searchKelas');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Pilih kelas</option>' + uniqueKelas().map(k=>`<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join('');
+  sel.value = cur;
+}
+
+/* ======================= PENCARIAN SISWA ======================= */
+document.getElementById('btnCari').addEventListener('click', doSearch);
+document.getElementById('searchNama').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
+
+function doSearch(){
+  const namaQuery = document.getElementById('searchNama').value.trim().toLowerCase();
+  const kelas = document.getElementById('searchKelas').value;
+  const msg = document.getElementById('searchMsg');
+  const matchCard = document.getElementById('matchListCard');
+  matchCard.style.display = 'none';
+  document.getElementById('matchListWrap').innerHTML = '';
+
+  if(!namaQuery || !kelas){
+    msg.textContent = 'Mohon isi nama dan pilih kelas terlebih dahulu.';
+    return;
+  }
+  if(!isConfigured() || siswaList.length===0){
+    msg.textContent = 'Data belum termuat. Tekan tombol "Muat" di kanan atas terlebih dahulu.';
+    return;
+  }
+
+  const matches = siswaList.filter(s=> s.kelas===kelas && s.nama.toLowerCase().includes(namaQuery));
+
+  if(matches.length===0){
+    msg.textContent = 'Siswa tidak ditemukan. Periksa kembali ejaan nama dan kelas yang dipilih.';
+    return;
+  }
+  if(matches.length===1){
+    msg.textContent = '';
+    selectSiswa(matches[0]);
+    return;
+  }
+  // lebih dari satu kecocokan -> minta pilih
+  msg.textContent = `Ditemukan ${matches.length} siswa dengan nama serupa di kelas ${kelas}.`;
+  matchCard.style.display = 'block';
+  document.getElementById('matchListWrap').innerHTML = matches.map(s=>`
+    <div class="li-item" data-no="${escapeHtml(s.no)}" data-kelas="${escapeHtml(s.kelas)}">
+      <div class="no">${escapeHtml(s.no)}</div>
+      <div class="nm"><div class="name">${escapeHtml(s.nama)}</div><div class="kelas">${escapeHtml(s.kelas)}</div></div>
+      <span class="muted">Pilih ›</span>
+    </div>
+  `).join('');
+  document.getElementById('matchListWrap').querySelectorAll('.li-item').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const s = siswaList.find(x=>String(x.no)===el.dataset.no && x.kelas===el.dataset.kelas);
+      if(s) selectSiswa(s);
+    });
+  });
+}
+
+function backToSearch(){
+  currentSiswa = null;
+  document.getElementById('panel-detail').style.display = 'none';
+  document.getElementById('panel-search').style.display = 'block';
+}
+document.getElementById('btnGantiSiswa').addEventListener('click', backToSearch);
+
+function selectSiswa(s){
+  currentSiswa = s;
+  document.getElementById('panel-search').style.display = 'none';
+  document.getElementById('panel-detail').style.display = 'block';
+  window.scrollTo({top:0, behavior:'instant'});
+
+  document.getElementById('profAvatar').textContent = (s.nama||'?').trim().charAt(0).toUpperCase();
+  document.getElementById('profNama').textContent = s.nama;
+  document.getElementById('profSub').textContent = `No. ${s.no} · Kelas ${s.kelas}`;
+  const poin = computeStudentPoin(s.no, s.kelas);
+  const poinEl = document.getElementById('profPoin');
+  poinEl.textContent = poin;
+  poinEl.className = 'val ' + poinBadgeClass(poin);
+
+  // default rentang 30 hari terakhir
+  const start = new Date(); start.setDate(start.getDate()-30);
+  document.getElementById('rekapStart').value = start.toISOString().slice(0,10);
+  document.getElementById('rekapEnd').value = todayISO();
+
+  renderRekapKehadiran();
+  renderKasusSiswa();
+}
+
+/* ======================= REKAP KEHADIRAN (siswa terpilih) ======================= */
+document.getElementById('btnTampilkanRekap').addEventListener('click', renderRekapKehadiran);
+
+function renderRekapKehadiran(){
+  if(!currentSiswa) return;
+  const start = document.getElementById('rekapStart').value;
+  const end = document.getElementById('rekapEnd').value;
+  const summaryEl = document.getElementById('rekapSummary');
+  const listEl = document.getElementById('rekapList');
+
+  if(!start || !end || start > end){
+    summaryEl.innerHTML = '';
+    listEl.innerHTML = '<div class="empty-state"><span class="ico">📅</span>Rentang tanggal tidak valid.</div>';
+    return;
+  }
+
+  const records = kehadiranAll.filter(r=>
+    String(r.no)===String(currentSiswa.no) && r.kelas===currentSiswa.kelas &&
+    r.tanggal >= start && r.tanggal <= end
+  ).sort((a,b)=> b.tanggal.localeCompare(a.tanggal));
+
+  const counts = {Hadir:0, Sakit:0, Izin:0, Alpa:0};
+  records.forEach(r=>{ if(counts[r.status]!==undefined) counts[r.status]++; });
+
+  summaryEl.innerHTML = Object.keys(counts).map(st=>`
+    <div class="summary-chip ${st}"><div class="n">${counts[st]}</div><div class="l">${st}</div></div>
+  `).join('');
+
+  if(records.length===0){
+    listEl.innerHTML = '<div class="empty-state"><span class="ico">📭</span>Belum ada data kehadiran pada rentang ini.</div>';
+    return;
+  }
+
+  listEl.innerHTML = records.map(r=>`
+    <div class="riwayat-row">
+      <div class="tgl">${fmtTanggal(r.tanggal)}</div>
+      <span class="badge ${r.status==='Hadir'?'Selesai':(r.status==='Alpa'?'PerluTindakan':'DalamProses')}">${escapeHtml(r.status)}</span>
+    </div>
+  `).join('');
+}
+
+/* ======================= CATATAN KASUS (siswa terpilih, read-only) ======================= */
+function renderKasusSiswa(){
+  if(!currentSiswa) return;
+  const wrap = document.getElementById('kasusWrap');
+  const list = kasusList.filter(k=> String(k.no)===String(currentSiswa.no) && k.kelas===currentSiswa.kelas)
+    .sort((a,b)=> b.tanggal.localeCompare(a.tanggal));
+
+  if(list.length===0){
+    wrap.innerHTML = '<div class="empty-state"><span class="ico">✓</span>Belum ada catatan kejadian untuk siswa ini.</div>';
+    return;
+  }
+
+  wrap.innerHTML = list.map(k=>{
+    const histori = k.histori || [];
+    const kategoriLabel = KATEGORI_LABEL[k.kategori] || k.kategori || 'Lainnya';
+    const poinTxt = k.poin ? `${k.poin>0?'+':''}${k.poin} poin` : '0 poin';
+    return `
+      <div class="case-card">
+        <div class="top">
+          <div>
+            <div style="font-weight:600; font-size:14px;">${escapeHtml(k.jenis)}</div>
+            <div class="meta">${fmtTanggal(k.tanggal)}</div>
+          </div>
+          <span class="badge ${k.status}">${STATUS_LABEL[k.status] || k.status}</span>
+        </div>
+        <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
+          <span class="badge ${k.kategori}">${escapeHtml(kategoriLabel)}</span>
+          <span class="poin-badge ${k.poin<0?'bad':(k.poin>0?'good':'warn')}">${poinTxt}</span>
+        </div>
+        <div class="desc">${escapeHtml(k.deskripsi)}</div>
+        ${k.tindakan ? `<div class="tindakan">Tindakan awal: ${escapeHtml(k.tindakan)}</div>` : ''}
+        ${histori.length ? `
+          <button class="histori-toggle" data-toggle="${k.id}">📜 Riwayat penanganan (${histori.length})</button>
+          <div class="histori-list" id="hist-${k.id}" style="display:none;">
+            ${histori.map(h=>`
+              <div class="histori-item">
+                <div class="ts">${fmtTimestamp(h.tanggal)}</div>
+                <div class="ct">${escapeHtml(h.catatan)}</div>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+
+  wrap.querySelectorAll('[data-toggle]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const el = document.getElementById('hist-'+btn.dataset.toggle);
+      el.style.display = el.style.display==='none' ? 'block' : 'none';
+    });
+  });
+}
+
+/* ======================= INIT ======================= */
+(function init(){
+  loadData(true);
+})();
+</script>
+</body>
+</html>
